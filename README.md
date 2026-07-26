@@ -1,13 +1,13 @@
 # Silo Local Metadata
 
-## Deprecated
+Silo metadata provider for local Jellyfin-compatible `.nfo` files and sidecar
+artwork stored beside media files.
 
-This repository is deprecated and will be archived.
+The plugin supports movie and series metadata plus local poster, backdrop, logo,
+and still images. Folder-level artwork names include `poster.png`, `folder.jpg`,
+`fanart.jpg`, `backdrop.png`, `logo.png`, and `thumb.jpg`.
 
-Silo Server now includes built-in NFO metadata and sidecar artwork support through
-the upstream `NFO Files` provider. Use the built-in provider instead of this
-plugin for local `.nfo` metadata and local poster/fanart/logo artwork.
-
-No new releases are planned for this plugin. Existing installs should migrate to
-the built-in Silo provider and remove this plugin from their metadata provider
-chains.
+Silo's built-in `NFO Files` provider currently reads core NFO metadata but does
+not discover or serve local sidecar artwork. Keep this plugin enabled in
+libraries that rely on local artwork until equivalent built-in support is
+available and the library has been migrated.
