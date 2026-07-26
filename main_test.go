@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	pluginv1 "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
@@ -467,6 +468,46 @@ func TestMetadataServerGetMetadataUsesFilePathSidecar(t *testing.T) {
 	}
 	if got := byName["Local Director"].GetKind(); got != "Director" {
 		t.Fatalf("Local Director Kind = %q, want Director", got)
+	}
+}
+
+func TestMetadataServerGetMetadataPreservesRequestedProviderIDForImages(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	media := filepath.Join(dir, "Movie.mkv")
+	mustWrite(t, media, "")
+	mustWrite(t, filepath.Join(dir, "Movie.nfo"), `<movie><title>Local Movie</title></movie>`)
+	mustWrite(t, filepath.Join(dir, "poster.png"), "png")
+
+	ms := &metadataServer{
+		runtime: &runtimeServer{provider: provider.NewProvider()},
+	}
+	const requestedProviderID = "search-provider-id"
+	metadataResp, err := ms.GetMetadata(context.Background(), &pluginv1.GetMetadataRequest{
+		ProviderId: requestedProviderID,
+		ItemType:   "movie",
+		FilePath:   media,
+	})
+	if err != nil {
+		t.Fatalf("GetMetadata() error = %v", err)
+	}
+	if got := metadataResp.GetItem().GetProviderId(); got != requestedProviderID {
+		t.Fatalf("ProviderId = %q, want %q", got, requestedProviderID)
+	}
+
+	imagesResp, err := ms.GetImages(context.Background(), &pluginv1.GetImagesRequest{
+		ProviderId: requestedProviderID,
+		ItemType:   "movie",
+	})
+	if err != nil {
+		t.Fatalf("GetImages() error = %v", err)
+	}
+	if got := len(imagesResp.GetImages()); got != 1 {
+		t.Fatalf("GetImages() length = %d, want 1", got)
+	}
+	if got := imagesResp.GetImages()[0].GetUrl(); !strings.HasPrefix(got, "local-metadata://") {
+		t.Fatalf("GetImages() URL = %q, want local-metadata:// prefix", got)
 	}
 }
 

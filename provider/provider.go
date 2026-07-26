@@ -107,6 +107,13 @@ func (p *Provider) GetMetadata(_ context.Context, req MetadataRequest) (*sidecar
 	}
 
 	result, err := p.sidecars.Lookup(req.FilePath, req.ContentType)
+	if result != nil {
+		if requestedProviderID := strings.TrimSpace(req.ProviderID); requestedProviderID != "" {
+			aliased := *result
+			aliased.ProviderID = requestedProviderID
+			result = &aliased
+		}
+	}
 	if p.debug {
 		switch {
 		case err != nil:
