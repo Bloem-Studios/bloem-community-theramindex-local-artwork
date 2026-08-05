@@ -5,7 +5,8 @@ artwork stored beside media files.
 
 The plugin supports movie and series metadata plus local poster, backdrop, logo,
 and still images. Folder-level artwork names include `poster.png`, `folder.jpg`,
-`fanart.jpg`, `backdrop.png`, `logo.png`, and `thumb.jpg`.
+`poster-<variant>.png`, `fanart.jpg`, `backdrop.png`, `logo.png`, and
+`thumb.jpg`. Poster variants also support `.jpg`, `.jpeg`, and `.webp`.
 
 Silo's built-in `NFO Files` provider currently reads core NFO metadata but does
 not discover or serve local sidecar artwork. Keep this plugin enabled in

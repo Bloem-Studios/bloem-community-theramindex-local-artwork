@@ -170,6 +170,39 @@ func TestLookupFindsSameBasenameAndJellyfinFolderImages(t *testing.T) {
 	}
 }
 
+func TestLookupFindsFolderPosterVariantsInDeterministicOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	media := filepath.Join(dir, "Movie.mkv")
+	writeFile(t, media, "")
+	writeFile(t, filepath.Join(dir, "poster-fr.jpg"), "french poster")
+	writeFile(t, filepath.Join(dir, "poster-en.png"), "english poster")
+	writeFile(t, filepath.Join(dir, "poster-.png"), "missing variant name")
+	writeFile(t, filepath.Join(dir, "poster-es.gif"), "unsupported format")
+
+	got, err := NewProvider().Lookup(media)
+	if err != nil {
+		t.Fatalf("Lookup() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Lookup() returned nil")
+	}
+
+	want := []string{"poster-en.png"}
+	if len(got.Images) != len(want) {
+		t.Fatalf("Images length = %d, want %d: %#v", len(got.Images), len(want), got.Images)
+	}
+	for i, image := range got.Images {
+		if image.Kind != "poster" {
+			t.Fatalf("Images[%d].Kind = %q, want poster", i, image.Kind)
+		}
+		if name := filepath.Base(image.Path); name != want[i] {
+			t.Fatalf("Images[%d] = %q, want %q", i, name, want[i])
+		}
+	}
+}
+
 func TestLookupReadsJellyfinSeriesAndSeasonNFO(t *testing.T) {
 	t.Parallel()
 

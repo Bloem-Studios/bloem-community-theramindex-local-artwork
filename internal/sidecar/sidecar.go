@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -20,6 +21,8 @@ const (
 
 	maxDataURLImageBytes = 8 * 1024 * 1024
 )
+
+var supportedImageExtensions = [...]string{".png", ".jpg", ".jpeg", ".webp"}
 
 type LookupResult struct {
 	ProviderID string
@@ -75,12 +78,16 @@ type Diagnostics struct {
 type FS interface {
 	Open(name string) (io.ReadCloser, error)
 	Stat(name string) (os.FileInfo, error)
+	ReadDir(name string) ([]os.DirEntry, error)
 }
 
 type osFS struct{}
 
 func (osFS) Open(name string) (io.ReadCloser, error) { return os.Open(name) }
 func (osFS) Stat(name string) (os.FileInfo, error)   { return os.Stat(name) }
+func (osFS) ReadDir(name string) ([]os.DirEntry, error) {
+	return os.ReadDir(name)
+}
 
 func NewProvider() *Provider {
 	return &Provider{fs: osFS{}}
@@ -374,7 +381,7 @@ func imageCandidates(fs FS, mediaPath string) []imageCandidate {
 		{"still", []string{"-thumb", ".thumb", "-still", ".still"}},
 	} {
 		for _, suffix := range spec.suffix {
-			for _, ext := range []string{".png", ".jpg", ".jpeg", ".webp"} {
+			for _, ext := range supportedImageExtensions {
 				out = append(out, imageCandidate{kind: spec.kind, path: base + suffix + ext})
 			}
 		}
@@ -393,12 +400,54 @@ func imageCandidates(fs FS, mediaPath string) []imageCandidate {
 		{"still", []string{"thumb", "still"}},
 	} {
 		for _, name := range spec.names {
-			for _, ext := range []string{".png", ".jpg", ".jpeg", ".webp"} {
+			for _, ext := range supportedImageExtensions {
 				out = append(out, imageCandidate{kind: spec.kind, path: filepath.Join(dir, name+ext)})
 			}
 		}
 	}
+	out = append(out, folderPosterVariantCandidates(fs, dir)...)
 	return dedupeImageCandidates(out)
+}
+
+func folderPosterVariantCandidates(fs FS, dir string) []imageCandidate {
+	entries, err := fs.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		left := strings.ToLower(entries[i].Name())
+		right := strings.ToLower(entries[j].Name())
+		if left == right {
+			return entries[i].Name() < entries[j].Name()
+		}
+		return left < right
+	})
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if !isSupportedImageExtension(ext) {
+			continue
+		}
+		stem := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
+		if !strings.HasPrefix(stem, "poster-") || len(stem) == len("poster-") {
+			continue
+		}
+		return []imageCandidate{{kind: "poster", path: filepath.Join(dir, name)}}
+	}
+	return nil
+}
+
+func isSupportedImageExtension(ext string) bool {
+	for _, supported := range supportedImageExtensions {
+		if ext == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func sidecarPath(mediaPath, ext string) string {
