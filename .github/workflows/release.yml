@@ -42,7 +42,7 @@ jobs:
       - name: Build release binaries
         run: |
           make checksums BINARY=plugin VERSION="${{ steps.version.outputs.version }}"
-          make catalog-assets BINARY=plugin PLUGIN_SLUG=silo-plugin-local-metadata VERSION="${{ steps.version.outputs.version }}"
+          make catalog-assets BINARY=plugin PLUGIN_SLUG=silo-plugin-local-artwork VERSION="${{ steps.version.outputs.version }}"
 
       - name: Publish source release
         env:
@@ -50,7 +50,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "$TAG" --notes "Silo Local Metadata $TAG"
+            gh release create "$TAG" --title "$TAG" --notes "Local Artwork for Silo $TAG"
           gh release upload "$TAG" dist/plugin-* dist/checksums.txt --clobber
 
       - name: Publish catalog release assets
@@ -70,5 +70,5 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: silo-local-metadata-dist
+          name: silo-local-artwork-dist
           path: dist/

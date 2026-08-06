@@ -6,129 +6,23 @@ import (
 	"testing"
 )
 
-func TestLookupReadsSameBasenameNFO(t *testing.T) {
+func TestArtworkSchemesUseNewCanonicalNameAndKeepLegacyAlias(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	media := filepath.Join(dir, "Example Movie (2024).mkv")
-	writeFile(t, media, "")
-	writeFile(t, filepath.Join(dir, "Example Movie (2024).nfo"), `<movie>
-  <title>Sidecar Title</title>
-  <originaltitle>Original Sidecar Title</originaltitle>
-  <sorttitle>Sidecar, Title</sorttitle>
-  <plot>A local overview.</plot>
-  <tagline>Local tagline.</tagline>
-  <year>2024</year>
-  <runtime>112 min</runtime>
-  <genre>Drama / Mystery</genre>
-  <studio>Example Studio</studio>
-  <country>US</country>
-  <mpaa>PG-13</mpaa>
-  <premiered>2024-05-01</premiered>
-  <imdbid>tt1234567</imdbid>
-  <tmdbid>98765</tmdbid>
-  <rating name="imdb"><value>7.4</value></rating>
-  <actor><name>Jane Example</name><role>Lead</role><order>2</order></actor>
-</movie>`)
-
-	got, err := NewProvider().Lookup(media)
-	if err != nil {
-		t.Fatalf("Lookup() error = %v", err)
+	if Scheme != "local-artwork://" {
+		t.Fatalf("Scheme = %q, want local-artwork://", Scheme)
 	}
-	if got == nil {
-		t.Fatal("Lookup() returned nil")
-	}
-	if got.Item.Title != "Sidecar Title" {
-		t.Fatalf("Title = %q", got.Item.Title)
-	}
-	if got.Item.Year != 2024 {
-		t.Fatalf("Year = %d", got.Item.Year)
-	}
-	if got.Item.RuntimeMinutes != 112 {
-		t.Fatalf("RuntimeMinutes = %d", got.Item.RuntimeMinutes)
-	}
-	if got.Item.ProviderIDs["imdb"] != "tt1234567" || got.Item.ProviderIDs["tmdb"] != "98765" {
-		t.Fatalf("ProviderIDs = %#v", got.Item.ProviderIDs)
-	}
-	if got.Item.Ratings["imdb"] != 7.4 {
-		t.Fatalf("Ratings = %#v", got.Item.Ratings)
-	}
-	if len(got.Item.People) != 1 || got.Item.People[0].Name != "Jane Example" || got.Item.People[0].Character != "Lead" {
-		t.Fatalf("People = %#v", got.Item.People)
-	}
-	if got.Item.People[0].Kind != "Actor" {
-		t.Fatalf("People[0].Kind = %q, want Actor", got.Item.People[0].Kind)
+	if LegacyScheme != "local-metadata://" {
+		t.Fatalf("LegacyScheme = %q, want local-metadata://", LegacyScheme)
 	}
 }
 
-func TestLookupReadsJellyfinMovieFolderNFO(t *testing.T) {
+func TestProviderIDRemainsStableAcrossRename(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	media := filepath.Join(dir, "Movie Folder", "Movie File [WEBDL-1080p].mkv")
-	writeFile(t, media, "")
-	writeFile(t, filepath.Join(filepath.Dir(media), "movie.nfo"), `<movie>
-  <title>Folder NFO Title</title>
-  <plot>Read from Jellyfin movie.nfo.</plot>
-  <year>2026</year>
-</movie>`)
-
-	got, err := NewProvider().Lookup(media, "movie")
-	if err != nil {
-		t.Fatalf("Lookup() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("Lookup() returned nil")
-	}
-	if got.Item.Title != "Folder NFO Title" {
-		t.Fatalf("Title = %q", got.Item.Title)
-	}
-	if got.Item.Year != 2026 {
-		t.Fatalf("Year = %d", got.Item.Year)
-	}
-	if got.Item.Metadata["sidecar_nfo_path"] != filepath.Join(filepath.Dir(media), "movie.nfo") {
-		t.Fatalf("sidecar_nfo_path = %#v", got.Item.Metadata["sidecar_nfo_path"])
-	}
-}
-
-func TestLookupMapsJellyfinPeopleToSiloKinds(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	media := filepath.Join(dir, "People Movie.mkv")
-	writeFile(t, media, "")
-	writeFile(t, filepath.Join(dir, "People Movie.nfo"), `<movie>
-  <title>People Movie</title>
-  <director>Mohammad Banki</director>
-  <writer>Writer One / Writer Two</writer>
-  <actor><name>Hamid Askari</name><order>0</order></actor>
-</movie>`)
-
-	got, err := NewProvider().Lookup(media, "movie")
-	if err != nil {
-		t.Fatalf("Lookup() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("Lookup() returned nil")
-	}
-
-	want := map[string]string{
-		"Mohammad Banki": "Director",
-		"Writer One":     "Writer",
-		"Writer Two":     "Writer",
-		"Hamid Askari":   "Actor",
-	}
-	for _, person := range got.Item.People {
-		if want[person.Name] == "" {
-			t.Fatalf("unexpected person %#v in %#v", person, got.Item.People)
-		}
-		if person.Kind != want[person.Name] {
-			t.Fatalf("person %q kind = %q, want %q", person.Name, person.Kind, want[person.Name])
-		}
-		delete(want, person.Name)
-	}
-	if len(want) > 0 {
-		t.Fatalf("missing people %#v from %#v", want, got.Item.People)
+	const mediaPath = "/media/Movies/Example Movie/Example Movie.mkv"
+	if got := providerID(mediaPath); got != "228377d51ca9b2de57a64bdf" {
+		t.Fatalf("providerID(%q) = %q, want legacy hash", mediaPath, got)
 	}
 }
 
@@ -138,13 +32,13 @@ func TestLookupFindsSameBasenameAndJellyfinFolderImages(t *testing.T) {
 	dir := t.TempDir()
 	media := filepath.Join(dir, "Show - S01E02.mkv")
 	writeFile(t, media, "")
-	writeFile(t, filepath.Join(dir, "Show - S01E02-poster.png"), "png")
-	writeFile(t, filepath.Join(dir, "Show - S01E02-fanart.jpg"), "jpg")
-	writeFile(t, filepath.Join(dir, "poster.png"), "folder poster")
-	writeFile(t, filepath.Join(dir, "folder.jpg"), "folder jpg")
+	writeFile(t, filepath.Join(dir, "Show - S01E02-poster.png"), validPNG)
+	writeFile(t, filepath.Join(dir, "Show - S01E02-fanart.jpg"), validPNG)
+	writeFile(t, filepath.Join(dir, "poster.png"), validPNG)
+	writeFile(t, filepath.Join(dir, "folder.jpg"), validPNG)
 	writeFile(t, filepath.Join(dir, "tvshow.nfo"), "<tvshow><title>Show Title</title></tvshow>")
 
-	got, err := NewProvider().Lookup(media)
+	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -176,12 +70,12 @@ func TestLookupFindsFolderPosterVariantsInDeterministicOrder(t *testing.T) {
 	dir := t.TempDir()
 	media := filepath.Join(dir, "Movie.mkv")
 	writeFile(t, media, "")
-	writeFile(t, filepath.Join(dir, "poster-fr.jpg"), "french poster")
-	writeFile(t, filepath.Join(dir, "poster-en.png"), "english poster")
+	writeFile(t, filepath.Join(dir, "poster-fr.jpg"), validPNG)
+	writeFile(t, filepath.Join(dir, "poster-en.png"), validPNG)
 	writeFile(t, filepath.Join(dir, "poster-.png"), "missing variant name")
 	writeFile(t, filepath.Join(dir, "poster-es.gif"), "unsupported format")
 
-	got, err := NewProvider().Lookup(media)
+	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -203,29 +97,59 @@ func TestLookupFindsFolderPosterVariantsInDeterministicOrder(t *testing.T) {
 	}
 }
 
-func TestLookupReadsJellyfinSeriesAndSeasonNFO(t *testing.T) {
+func TestLookupFindsExactArtworkWithUppercaseExtension(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	seriesDir := filepath.Join(dir, "Example Show")
-	seasonDir := filepath.Join(seriesDir, "Season 01")
-	writeFile(t, filepath.Join(seriesDir, "tvshow.nfo"), `<tvshow><title>Series Title</title></tvshow>`)
-	writeFile(t, filepath.Join(seasonDir, "season.nfo"), `<season><title>Season Title</title></season>`)
+	media := filepath.Join(dir, "Movie.mkv")
+	writeFile(t, media, "")
+	writeFile(t, filepath.Join(dir, "poster.PNG"), validPNG)
 
-	series, err := NewProvider().Lookup(seriesDir, "series")
+	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
 	if err != nil {
-		t.Fatalf("series Lookup() error = %v", err)
+		t.Fatalf("Lookup() error = %v", err)
 	}
-	if series == nil || series.Item.Title != "Series Title" {
-		t.Fatalf("series Lookup() = %#v", series)
+	if got == nil || len(got.Images) != 1 || filepath.Base(got.Images[0].Path) != "poster.PNG" {
+		t.Fatalf("Lookup() = %#v, want poster.PNG", got)
 	}
+}
 
-	season, err := NewProvider().Lookup(seasonDir, "season")
+func TestLookupSkipsInvalidPosterVariantAndUsesNextValidCandidate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	media := filepath.Join(dir, "Movie.mkv")
+	writeFile(t, media, "")
+	writeFile(t, filepath.Join(dir, "poster-a.png"), "not an image")
+	writeFile(t, filepath.Join(dir, "poster-b.png"), validPNG)
+
+	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
 	if err != nil {
-		t.Fatalf("season Lookup() error = %v", err)
+		t.Fatalf("Lookup() error = %v", err)
 	}
-	if season == nil || season.Item.Title != "Season Title" {
-		t.Fatalf("season Lookup() = %#v", season)
+	if got == nil || len(got.Images) != 1 {
+		t.Fatalf("Lookup() = %#v, want one valid variant", got)
+	}
+	if name := filepath.Base(got.Images[0].Path); name != "poster-b.png" {
+		t.Fatalf("variant = %q, want poster-b.png", name)
+	}
+}
+
+func TestLookupFindsArtworkWhenNFOIsMalformed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	media := filepath.Join(dir, "Movie.mkv")
+	writeFile(t, media, "")
+	writeFile(t, filepath.Join(dir, "movie.nfo"), "<movie><broken>")
+	writeFile(t, filepath.Join(dir, "poster.png"), validPNG)
+
+	got, err := NewProviderWithRoots([]string{dir}).Lookup(media, "movie")
+	if err != nil {
+		t.Fatalf("Lookup() error = %v", err)
+	}
+	if got == nil || len(got.Images) != 1 {
+		t.Fatalf("Lookup() = %#v, want one artwork result", got)
 	}
 }
 
@@ -236,7 +160,7 @@ func TestLookupReturnsNilWhenNoSidecarExists(t *testing.T) {
 	media := filepath.Join(dir, "No Metadata.mkv")
 	writeFile(t, media, "")
 
-	got, err := NewProvider().Lookup(media)
+	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -249,14 +173,14 @@ func TestResolveImageUsesDataURLForExistingSidecarPath(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	image := filepath.Join(dir, "Movie-poster.jpg")
-	writeFile(t, image, "jpg")
+	image := filepath.Join(dir, "Movie-poster.png")
+	writeFile(t, image, validPNG)
 
-	got, err := NewProvider().ResolveImage(Scheme + image)
+	got, err := NewProviderWithRoots([]string{dir}).ResolveImage(Scheme + image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
-	want := "data:image/jpeg;base64,anBn"
+	want := "data:image/png;base64," + validPNGBase64
 	if got != want {
 		t.Fatalf("ResolveImage() = %q, want %q", got, want)
 	}
@@ -266,18 +190,147 @@ func TestResolveImageUsesDataURLForBareResolverPath(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	image := filepath.Join(dir, "Movie-poster.jpg")
-	writeFile(t, image, "jpg")
+	image := filepath.Join(dir, "Movie-poster.png")
+	writeFile(t, image, validPNG)
 
-	got, err := NewProvider().ResolveImage(image)
+	got, err := NewProviderWithRoots([]string{dir}).ResolveImage(image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
-	want := "data:image/jpeg;base64,anBn"
+	want := "data:image/png;base64," + validPNGBase64
 	if got != want {
 		t.Fatalf("ResolveImage() = %q, want %q", got, want)
 	}
 }
+
+func TestResolveImageSupportsLegacySchemeDuringMigration(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	image := filepath.Join(dir, "poster.png")
+	writeFile(t, image, validPNG)
+
+	got, err := NewProviderWithRoots([]string{dir}).ResolveImage(LegacyScheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if got == "" {
+		t.Fatal("ResolveImage() returned an empty URL for legacy scheme")
+	}
+}
+
+func TestResolveImageRejectsPathOutsideConfiguredRoots(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	insideImage := filepath.Join(root, "poster.png")
+	outsideImage := filepath.Join(outside, "poster.png")
+	writeFile(t, insideImage, validPNG)
+	writeFile(t, outsideImage, validPNG)
+	p := NewProviderWithRoots([]string{root})
+
+	insideURL, err := p.ResolveImage(Scheme + insideImage)
+	if err != nil || insideURL == "" {
+		t.Fatalf("ResolveImage(inside) = %q, %v", insideURL, err)
+	}
+	outsideURL, err := p.ResolveImage(Scheme + outsideImage)
+	if err != nil {
+		t.Fatalf("ResolveImage(outside) error = %v", err)
+	}
+	if outsideURL != "" {
+		t.Fatalf("ResolveImage(outside) = %q, want empty", outsideURL)
+	}
+}
+
+func TestResolveImageFailsClosedWhenConfiguredRootIsInvalid(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	image := filepath.Join(dir, "poster.png")
+	writeFile(t, image, validPNG)
+	p := NewProviderWithRoots([]string{filepath.Join(dir, "missing-root")})
+
+	resolved, err := p.ResolveImage(Scheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("ResolveImage() = %q, want empty", resolved)
+	}
+}
+
+func TestResolveImageFailsClosedWithoutConfiguredRoots(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	image := filepath.Join(dir, "poster.png")
+	writeFile(t, image, validPNG)
+
+	resolved, err := NewProviderWithRoots(nil).ResolveImage(Scheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("ResolveImage() = %q, want empty", resolved)
+	}
+}
+
+func TestLookupAndResolveRejectSymlinkImageLeaves(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	media := filepath.Join(root, "Movie.mkv")
+	target := filepath.Join(root, "real-poster.png")
+	linked := filepath.Join(root, "poster.png")
+	writeFile(t, media, "")
+	writeFile(t, target, validPNG)
+	if err := os.Symlink(target, linked); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	p := NewProviderWithRoots([]string{root})
+
+	result, err := p.Lookup(media, "movie")
+	if err != nil {
+		t.Fatalf("Lookup() error = %v", err)
+	}
+	if result != nil {
+		t.Fatalf("Lookup() = %#v, want nil", result)
+	}
+	resolved, err := p.ResolveImage(Scheme + linked)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("ResolveImage() = %q, want empty", resolved)
+	}
+}
+
+func TestResolveImageRejectsNonImageContent(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	image := filepath.Join(root, "poster.png")
+	writeFile(t, image, "not an image")
+
+	resolved, err := NewProviderWithRoots([]string{root}).ResolveImage(Scheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("ResolveImage() = %q, want empty", resolved)
+	}
+}
+
+const validPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
+var validPNG = string([]byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x04, 0x00, 0x00, 0x00, 0xb5, 0x1c, 0x0c,
+	0x02, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x64, 0xf8, 0x0f, 0x00,
+	0x01, 0x05, 0x01, 0x01, 0x27, 0x18, 0xe3, 0x66, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+	0xae, 0x42, 0x60, 0x82,
+})
 
 func writeFile(t *testing.T, path, contents string) {
 	t.Helper()

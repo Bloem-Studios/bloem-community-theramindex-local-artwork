@@ -1,74 +1,70 @@
-# Operations & Debugging
+# Local Artwork operations
 
-Operator-facing notes for `silo.ramindex.local-metadata`.
+Operator notes for the Local Artwork add-on. The stable installed plugin ID is
+`silo.ramindex.local-metadata`.
 
-## Request Lifecycle
+## Data flow
 
-The plugin only answers calls that include `GetMetadataRequest.file_path`.
-Silo passes the media file path during metadata refreshes. The plugin derives
-Jellyfin-compatible sidecar candidates from that path, parses the `.nfo` if
-present, and returns any matching local artwork paths.
+1. Silo supplies a media path to the compatibility metadata capability.
+2. Local Artwork looks only for adjacent image files; it does not read NFO XML.
+3. The plugin returns a stable provider ID derived from the cleaned media path.
+4. Image requests reuse that ID through the in-memory or configured-root index.
+5. The resolver converts validated `local-artwork://` paths to data URLs.
 
-If no local sidecar exists, `GetMetadata` returns an empty response with no
-item. This is the normal "not found" signal and lets downstream providers fill
-metadata.
+The built-in NFO provider must be ordered before Local Artwork.
 
-## Common Workflows
+## Required root configuration
 
-### Enable request diagnostics
+Set the container environment variable to the mounted library root:
 
-Set `SILO_LOCAL_METADATA_DEBUG=1` on the Silo container, restart Silo, then
-refresh one affected library. The plugin logs each `GetMetadata` request with
-the item type, file path, NFO candidates, selected NFO path, local image count,
-and match result.
+```text
+SILO_LOCAL_ARTWORK_ROOTS=/mnt
+```
 
-Diagnostics are also appended to `/tmp/silo-local-metadata-debug.log` by
-default. Set `SILO_LOCAL_METADATA_DEBUG_LOG=/path/to/file.log` to override the
-file path.
+Multiple roots may be separated by commas or newlines. The legacy
+`SILO_LOCAL_METADATA_ROOTS` name remains accepted during migration.
 
-The plugin always logs a warning if Silo calls it without
-`GetMetadataRequest.file_path`, because local sidecars cannot be resolved
-without that path.
+Configured roots are used both for fallback indexing and path confinement.
+Without at least one valid configured root, artwork discovery and resolution
+fail closed.
 
-### "My NFO was ignored"
+## Diagnostics
 
-1. Confirm the NFO uses a supported Jellyfin-compatible name:
-   - `Movie.mkv` -> `Movie.nfo`
-   - `Movie Folder/Movie.mkv` -> `Movie Folder/movie.nfo`
-   - `Show - S01E02.mkv` -> `Show - S01E02.nfo`
-   - `Example Show/` -> `Example Show/tvshow.nfo`
-   - `Season 01/` -> `Season 01/season.nfo`
-2. Confirm the file is visible from the Silo container at the same path Silo
-   stores for the media file.
-3. Confirm the XML is well-formed. Malformed XML is returned as a plugin error
-   so the bad sidecar is visible instead of silently ignored.
-4. Trigger a metadata refresh for the item.
+Enable request diagnostics with:
 
-### "My poster was ignored"
+```text
+SILO_LOCAL_ARTWORK_DEBUG=1
+```
 
-1. Confirm the artwork uses either the media basename or a supported folder-level
-   Jellyfin name.
-2. Confirm the suffix is one of:
-   - poster: `-poster`, `.poster`
-   - backdrop: `-backdrop`, `.backdrop`, `-fanart`, `.fanart`
-   - logo: `-logo`, `.logo`
-   - still: `-thumb`, `.thumb`, `-still`, `.still`
-3. Confirm the extension is `.png`, `.jpg`, `.jpeg`, or `.webp`.
-4. Folder-level `poster.png`, `folder.jpg`, `fanart.jpg`, `backdrop.png`,
-   `logo.png`, and `thumb.jpg` are supported. Season-specific names like
-   `season01-poster.jpg` are not implemented yet.
+Logs are appended to `/tmp/silo-local-artwork-debug.log`. Override the path with
+`SILO_LOCAL_ARTWORK_DEBUG_LOG`.
 
-## Provider IDs
+Legacy debug environment names are accepted during the 0.2.x migration.
 
-The plugin stores a deterministic `ProviderIDs["local-metadata"]` value derived
-from the media path. NFO-provided external IDs such as `imdbid`, `tmdbid`, and
-`tvdbid` are also passed through when present.
+## Troubleshooting
 
-## Where To Look In The Code
+### Metadata changed unexpectedly
 
-| Concern | File |
-| --- | --- |
-| Silo RPC wiring and proto translation | `main.go` |
-| Sidecar path derivation and NFO parser | `internal/sidecar/sidecar.go` |
-| Thin provider facade | `provider/provider.go` |
-| Manifest metadata and category | `manifest.json` |
+Confirm built-in `NFO Files` is ordered before Local Artwork. Local Artwork
+returns provider identity and image paths only; it does not parse titles, years,
+IDs, plots, ratings, or people from NFO.
+
+### Artwork is missing
+
+1. Confirm the image is PNG, JPEG, or WebP and no larger than 8 MiB.
+2. Confirm it uses a supported basename, folder name, or `poster-*` variant.
+3. Confirm the path is under `SILO_LOCAL_ARTWORK_ROOTS`.
+4. Confirm the image itself is not a symlink.
+5. Refresh metadata so Silo stores a new `local-artwork://` URL.
+
+### Old artwork disappeared
+
+Version 0.2.x registers both `local-artwork` and `local-metadata` resolver
+schemes. Confirm the plugin is enabled and the resolver capability is healthy.
+
+## Compatibility invariants
+
+- Do not change the provider-ID hash derivation during the migration.
+- Do not remove the `local-metadata://` resolver alias until stored legacy URLs
+  have been refreshed or migrated.
+- Do not change the installed plugin ID during the repository rename.

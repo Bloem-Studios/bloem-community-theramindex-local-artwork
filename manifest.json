@@ -1,6 +1,6 @@
 {
   "plugin_id": "silo.ramindex.local-metadata",
-  "version": "0.1.18",
+  "version": "0.2.0",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
   "supported_platforms": [
@@ -21,8 +21,8 @@
     {
       "type": "metadata_provider.v1",
       "id": "local-metadata",
-      "display_name": "Silo Local Metadata",
-      "description": "Reads read-only NFO metadata and local sidecar artwork next to the media file.",
+      "display_name": "Local Artwork",
+      "description": "Adds local posters, backdrops, logos, and stills alongside Silo's built-in NFO metadata.",
       "metadata": {
         "default_priority": {
           "movie": 1,
@@ -35,10 +35,11 @@
     {
       "type": "image_resolver.v1",
       "id": "local-metadata",
-      "display_name": "Silo Local Metadata Images",
-      "description": "Resolves local sidecar artwork paths for Silo image serving.",
+      "display_name": "Local Artwork Images",
+      "description": "Resolves local artwork paths for Silo image serving without object storage.",
       "metadata": {
         "schemes": [
+          "local-artwork",
           "local-metadata"
         ],
         "priority": 100

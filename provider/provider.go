@@ -11,7 +11,7 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/theramindex/silo-plugin-local-metadata/internal/sidecar"
+	"github.com/theramindex/silo-plugin-local-artwork/internal/sidecar"
 )
 
 type MetadataRequest struct {
@@ -28,9 +28,14 @@ type SearchRequest struct {
 }
 
 type SearchResponse struct {
-	Results         []*sidecar.LookupResult
-	Authoritative   bool
+	Results         []*SearchResult
 	IndexConfigured bool
+}
+
+type SearchResult struct {
+	Artwork *sidecar.LookupResult
+	Title   string
+	Year    int
 }
 
 type ImageRequest struct {
@@ -78,18 +83,18 @@ func NewProviderWithSidecars(sidecars *sidecar.Provider) *Provider {
 
 func (p *Provider) GetMetadata(_ context.Context, req MetadataRequest) (*sidecar.LookupResult, error) {
 	if strings.TrimSpace(req.FilePath) == "" && strings.TrimSpace(req.ProviderID) == "" {
-		p.debugf("local-metadata: GetMetadata missing file_path item_type=%q", req.ContentType)
+		p.debugf("local-artwork: GetMetadata missing file_path item_type=%q", req.ContentType)
 	}
 	if strings.TrimSpace(req.FilePath) == "" && strings.TrimSpace(req.ProviderID) != "" {
 		result, err := p.lookupCachedMetadata(req.ProviderID)
 		if p.debug {
 			switch {
 			case err != nil:
-				p.debugf("local-metadata: GetMetadata indexed error item_type=%q provider_id=%q error=%v", req.ContentType, strings.TrimSpace(req.ProviderID), err)
+				p.debugf("local-artwork: GetMetadata indexed error item_type=%q provider_id=%q error=%v", req.ContentType, strings.TrimSpace(req.ProviderID), err)
 			case result == nil:
-				p.debugf("local-metadata: GetMetadata indexed empty item_type=%q provider_id=%q", req.ContentType, strings.TrimSpace(req.ProviderID))
+				p.debugf("local-artwork: GetMetadata indexed empty item_type=%q provider_id=%q", req.ContentType, strings.TrimSpace(req.ProviderID))
 			default:
-				p.debugf("local-metadata: GetMetadata indexed matched item_type=%q provider_id=%q title=%q year=%d image_count=%d", req.ContentType, result.ProviderID, result.Item.Title, result.Item.Year, len(result.Images))
+				p.debugf("local-artwork: GetMetadata indexed matched item_type=%q provider_id=%q image_count=%d", req.ContentType, result.ProviderID, len(result.Images))
 			}
 		}
 		return result, err
@@ -97,11 +102,9 @@ func (p *Provider) GetMetadata(_ context.Context, req MetadataRequest) (*sidecar
 	if p.debug {
 		diag := p.sidecars.Diagnostics(req.FilePath, req.ContentType)
 		p.debugf(
-			"local-metadata: GetMetadata request item_type=%q file_path=%q nfo_found=%q nfo_candidates=%q image_count=%d",
+			"local-artwork: GetMetadata request item_type=%q file_path=%q image_count=%d",
 			req.ContentType,
 			diag.MediaPath,
-			diag.NFOPath,
-			strings.Join(diag.NFOCandidates, "|"),
 			diag.ImageCount,
 		)
 	}
@@ -117,17 +120,15 @@ func (p *Provider) GetMetadata(_ context.Context, req MetadataRequest) (*sidecar
 	if p.debug {
 		switch {
 		case err != nil:
-			p.debugf("local-metadata: GetMetadata error item_type=%q file_path=%q error=%v", req.ContentType, strings.TrimSpace(req.FilePath), err)
+			p.debugf("local-artwork: GetMetadata error item_type=%q file_path=%q error=%v", req.ContentType, strings.TrimSpace(req.FilePath), err)
 		case result == nil:
-			p.debugf("local-metadata: GetMetadata empty item_type=%q file_path=%q", req.ContentType, strings.TrimSpace(req.FilePath))
+			p.debugf("local-artwork: GetMetadata empty item_type=%q file_path=%q", req.ContentType, strings.TrimSpace(req.FilePath))
 		default:
 			p.debugf(
-				"local-metadata: GetMetadata matched item_type=%q file_path=%q provider_id=%q title=%q year=%d image_count=%d",
+				"local-artwork: GetMetadata matched item_type=%q file_path=%q provider_id=%q image_count=%d",
 				req.ContentType,
 				strings.TrimSpace(req.FilePath),
 				result.ProviderID,
-				result.Item.Title,
-				result.Item.Year,
 				len(result.Images),
 			)
 		}
@@ -140,11 +141,14 @@ func (p *Provider) Search(_ context.Context, req SearchRequest) (SearchResponse,
 	if filePath := filePathProviderID(req.ProviderIDs); filePath != "" {
 		result, err := p.sidecars.Lookup(filePath, req.ContentType)
 		if err != nil || result == nil {
-			return SearchResponse{Authoritative: true}, err
+			return SearchResponse{}, err
 		}
-		result = searchResultWithFallbacks(result, req.Query, req.Year)
 		p.rememberLookupResult(result)
-		return SearchResponse{Results: []*sidecar.LookupResult{result}, Authoritative: true}, nil
+		return SearchResponse{Results: []*SearchResult{{
+			Artwork: result,
+			Title:   strings.TrimSpace(req.Query),
+			Year:    req.Year,
+		}}}, nil
 	}
 	if !supportsIndexedItemType(req.ContentType) {
 		return SearchResponse{}, nil
@@ -155,7 +159,7 @@ func (p *Provider) Search(_ context.Context, req SearchRequest) (SearchResponse,
 	}
 	queryKey := normalizeSearchText(req.Query)
 	if queryKey == "" {
-		return SearchResponse{Authoritative: true, IndexConfigured: true}, nil
+		return SearchResponse{IndexConfigured: true}, nil
 	}
 	matches := make([]localIndexEntry, 0, 5)
 	for _, entry := range index.entries {
@@ -166,16 +170,19 @@ func (p *Provider) Search(_ context.Context, req SearchRequest) (SearchResponse,
 	sort.SliceStable(matches, func(i, j int) bool {
 		return searchRank(matches[i], queryKey) > searchRank(matches[j], queryKey)
 	})
-	results := make([]*sidecar.LookupResult, 0, len(matches))
+	results := make([]*SearchResult, 0, len(matches))
 	for _, match := range matches {
-		result := searchResultWithFallbacks(match.result, req.Query, req.Year)
-		p.rememberLookupResult(result)
-		results = append(results, result)
+		p.rememberLookupResult(match.result)
+		results = append(results, &SearchResult{
+			Artwork: match.result,
+			Title:   strings.TrimSpace(req.Query),
+			Year:    req.Year,
+		})
 		if len(results) >= 5 {
 			break
 		}
 	}
-	return SearchResponse{Results: results, Authoritative: true, IndexConfigured: true}, nil
+	return SearchResponse{Results: results, IndexConfigured: true}, nil
 }
 
 func (p *Provider) GetImages(_ context.Context, req ImageRequest) ([]sidecar.Image, error) {
@@ -233,7 +240,7 @@ func (p *Provider) rememberLookupResult(result *sidecar.LookupResult) {
 }
 
 func (p *Provider) localIndex() (*localIndex, bool, error) {
-	roots := metadataRoots()
+	roots := sidecar.ConfiguredRoots()
 	if len(roots) == 0 {
 		return nil, false, nil
 	}
@@ -249,18 +256,14 @@ func (p *Provider) buildLocalIndex(roots []string) (*localIndex, error) {
 	}
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d == nil || d.IsDir() || !strings.EqualFold(d.Name(), "movie.nfo") {
+			if err != nil || d == nil || d.IsDir() || !isMediaFile(path) {
 				return nil
 			}
-			mediaPath := firstMediaFile(filepath.Dir(path))
-			if mediaPath == "" {
-				return nil
-			}
-			result, err := p.sidecars.Lookup(mediaPath, "movie")
+			result, err := p.sidecars.Lookup(path, "movie")
 			if err != nil || result == nil {
 				return err
 			}
-			keys := indexKeys(result, mediaPath)
+			keys := indexKeys(path)
 			if len(keys) == 0 {
 				return nil
 			}
@@ -273,23 +276,6 @@ func (p *Provider) buildLocalIndex(roots []string) (*localIndex, error) {
 		}
 	}
 	return index, nil
-}
-
-func metadataRoots() []string {
-	value := strings.TrimSpace(os.Getenv("SILO_LOCAL_METADATA_ROOTS"))
-	if value == "" {
-		return nil
-	}
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == '\n'
-	})
-	roots := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if root := strings.TrimSpace(part); root != "" {
-			roots = append(roots, root)
-		}
-	}
-	return roots
 }
 
 func filePathProviderID(providerIDs map[string]string) string {
@@ -317,38 +303,6 @@ func providerIDFromImageRequest(req ImageRequest) string {
 	return ""
 }
 
-func searchResultWithFallbacks(result *sidecar.LookupResult, query string, year int) *sidecar.LookupResult {
-	if result == nil {
-		return nil
-	}
-	adjusted := *result
-	adjusted.Item = result.Item
-	if adjusted.Item.Title == "" {
-		adjusted.Item.Title = strings.TrimSpace(query)
-	}
-	if adjusted.Item.Year == 0 && year > 0 {
-		adjusted.Item.Year = year
-	}
-	return &adjusted
-}
-
-func firstMediaFile(dir string) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		if isMediaFile(path) {
-			return path
-		}
-	}
-	return ""
-}
-
 func isMediaFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mkv", ".mp4", ".avi", ".mov", ".m4v":
@@ -367,11 +321,8 @@ func supportsIndexedItemType(itemType string) bool {
 	}
 }
 
-func indexKeys(result *sidecar.LookupResult, mediaPath string) []string {
+func indexKeys(mediaPath string) []string {
 	values := []string{
-		result.Item.Title,
-		result.Item.OriginalTitle,
-		result.Item.SortTitle,
 		strings.TrimSuffix(filepath.Base(mediaPath), filepath.Ext(mediaPath)),
 		filepath.Base(filepath.Dir(mediaPath)),
 	}
@@ -388,10 +339,7 @@ func indexKeys(result *sidecar.LookupResult, mediaPath string) []string {
 	return keys
 }
 
-func entryMatchesQuery(entry localIndexEntry, queryKey string, year int) bool {
-	if year > 0 && entry.result.Item.Year > 0 && entry.result.Item.Year != year {
-		return false
-	}
+func entryMatchesQuery(entry localIndexEntry, queryKey string, _ int) bool {
 	for _, key := range entry.keys {
 		if key == queryKey || strings.Contains(queryKey, key) || strings.Contains(key, queryKey) {
 			return true
@@ -465,15 +413,21 @@ func normalizeSearchText(value string) string {
 }
 
 func debugEnabled() bool {
-	value := strings.TrimSpace(strings.ToLower(os.Getenv("SILO_LOCAL_METADATA_DEBUG")))
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("SILO_LOCAL_ARTWORK_DEBUG")))
+	if value == "" {
+		value = strings.TrimSpace(strings.ToLower(os.Getenv("SILO_LOCAL_METADATA_DEBUG")))
+	}
 	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 func debugLogPath() string {
+	if value := strings.TrimSpace(os.Getenv("SILO_LOCAL_ARTWORK_DEBUG_LOG")); value != "" {
+		return value
+	}
 	if value := strings.TrimSpace(os.Getenv("SILO_LOCAL_METADATA_DEBUG_LOG")); value != "" {
 		return value
 	}
-	return "/tmp/silo-local-metadata-debug.log"
+	return "/tmp/silo-local-artwork-debug.log"
 }
 
 func (p *Provider) debugf(format string, args ...any) {
@@ -487,7 +441,7 @@ func (p *Provider) debugf(format string, args ...any) {
 	}
 	file, err := os.OpenFile(p.debugLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		log.Printf("local-metadata: open debug log %q: %v", p.debugLog, err)
+		log.Printf("local-artwork: open debug log %q: %v", p.debugLog, err)
 		return
 	}
 	defer file.Close()

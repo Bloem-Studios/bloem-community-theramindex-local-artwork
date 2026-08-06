@@ -1,7 +1,7 @@
 .PHONY: build test lint clean build-all checksums catalog-assets
 
 BINARY ?= plugin
-PLUGIN_SLUG ?= silo-plugin-local-metadata
+PLUGIN_SLUG ?= silo-plugin-local-artwork
 PLATFORMS = linux/amd64 linux/arm64 darwin/arm64
 VERSION ?= $(shell git describe --tags --always 2>/dev/null | sed 's/^v//')
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -16,7 +16,7 @@ lint:
 	golangci-lint run ./...
 
 clean:
-	rm -rf dist $(BINARY) silo-plugin-local-metadata
+	rm -rf dist $(BINARY) silo-plugin-local-artwork
 
 build-all:
 	mkdir -p dist

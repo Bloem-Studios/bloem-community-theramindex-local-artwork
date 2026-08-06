@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestManifestRegistersLocalMetadataImageScheme(t *testing.T) {
+func TestManifestRegistersLocalArtworkImageSchemes(t *testing.T) {
 	raw, err := os.ReadFile("manifest.json")
 	if err != nil {
 		t.Fatalf("ReadFile(manifest.json) error = %v", err)
@@ -28,12 +28,18 @@ func TestManifestRegistersLocalMetadataImageScheme(t *testing.T) {
 		if capability.Type != "image_resolver.v1" {
 			continue
 		}
+		want := map[string]bool{"local-artwork": false, "local-metadata": false}
 		for _, scheme := range capability.Metadata.Schemes {
-			if scheme == "local-metadata" {
-				return
+			if _, ok := want[scheme]; ok {
+				want[scheme] = true
 			}
 		}
-		t.Fatalf("image_resolver.v1 schemes = %v, want local-metadata", capability.Metadata.Schemes)
+		for scheme, found := range want {
+			if !found {
+				t.Fatalf("image_resolver.v1 schemes = %v, missing %s", capability.Metadata.Schemes, scheme)
+			}
+		}
+		return
 	}
 
 	t.Fatal("manifest has no image_resolver.v1 capability")

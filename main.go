@@ -7,29 +7,21 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pluginv1 "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	publicmanifest "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/manifest"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
-	"github.com/theramindex/silo-plugin-local-metadata/internal/sidecar"
-	"github.com/theramindex/silo-plugin-local-metadata/provider"
+	"github.com/theramindex/silo-plugin-local-artwork/internal/sidecar"
+	"github.com/theramindex/silo-plugin-local-artwork/provider"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
 var version string
 
 const localProviderIDKey = "local"
-
-var (
-	gregorianYearPattern = regexp.MustCompile(`\b(19[0-9]{2}|20[0-9]{2})\b`)
-	persianYearPattern   = regexp.MustCompile(`\b(13[0-9]{2}|14[0-9]{2})\b`)
-)
 
 type runtimeServer struct {
 	pluginv1.UnimplementedRuntimeServer
@@ -59,7 +51,7 @@ func (s *metadataServer) Search(_ context.Context, req *pluginv1.SearchMetadataR
 	title := strings.TrimSpace(req.GetQuery())
 	itemType := strings.TrimSpace(req.GetItemType())
 	if !supportsSearchItemType(itemType) {
-		debugf("local-metadata: Search skipped item_type=%q query=%q year=%d reason=unsupported_item_type", req.GetItemType(), req.GetQuery(), req.GetYear())
+		debugf("local-artwork: Search skipped item_type=%q query=%q year=%d reason=unsupported_item_type", req.GetItemType(), req.GetQuery(), req.GetYear())
 		return &pluginv1.SearchMetadataResponse{}, nil
 	}
 	indexed, err := s.runtime.provider.Search(context.Background(), provider.SearchRequest{
@@ -71,43 +63,19 @@ func (s *metadataServer) Search(_ context.Context, req *pluginv1.SearchMetadataR
 	if err != nil {
 		return nil, err
 	}
-	if indexed.Authoritative || indexed.IndexConfigured {
+	if len(indexed.Results) > 0 || indexed.IndexConfigured {
 		results := make([]*pluginv1.ProviderSearchResult, 0, len(indexed.Results))
 		for _, result := range indexed.Results {
 			searchResult, err := providerSearchResultFromLookup(result, itemType)
 			if err != nil {
 				return nil, err
 			}
-			debugf("local-metadata: Search indexed matched item_type=%q query=%q year=%d provider_id=%q", itemType, title, searchResult.GetYear(), searchResult.GetProviderId())
+			debugf("local-artwork: Search indexed matched item_type=%q query=%q year=%d provider_id=%q", itemType, title, searchResult.GetYear(), searchResult.GetProviderId())
 			results = append(results, searchResult)
 		}
 		return &pluginv1.SearchMetadataResponse{Results: results}, nil
 	}
-	if title == "" {
-		title = "Local Metadata"
-	}
-	year := localSearchYear(title, req.GetYear())
-
-	providerID := localSearchProviderID(itemType, title, year)
-	debugf("local-metadata: Search matched item_type=%q query=%q year=%d provider_id=%q", itemType, title, year, providerID)
-	providerIDs, err := stringStruct(map[string]string{
-		localProviderIDKey:   providerID,
-		sidecar.CapabilityID: providerID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &pluginv1.SearchMetadataResponse{
-		Results: []*pluginv1.ProviderSearchResult{
-			{
-				ProviderId:  providerID,
-				ItemType:    itemType,
-				Title:       title,
-				Year:        year,
-				ProviderIds: providerIDs,
-			},
-		},
-	}, nil
+	return &pluginv1.SearchMetadataResponse{}, nil
 }
 
 func (s *metadataServer) GetMetadata(ctx context.Context, req *pluginv1.GetMetadataRequest) (*pluginv1.GetMetadataResponse, error) {
@@ -129,29 +97,23 @@ func (s *metadataServer) GetMetadata(ctx context.Context, req *pluginv1.GetMetad
 	return &pluginv1.GetMetadataResponse{Item: item}, nil
 }
 
-func providerSearchResultFromLookup(result *sidecar.LookupResult, itemType string) (*pluginv1.ProviderSearchResult, error) {
+func providerSearchResultFromLookup(result *provider.SearchResult, itemType string) (*pluginv1.ProviderSearchResult, error) {
+	artwork := result.Artwork
 	rawProviderIDs := map[string]string{
-		localProviderIDKey:   result.ProviderID,
-		sidecar.CapabilityID: result.ProviderID,
-	}
-	for key, value := range result.Item.ProviderIDs {
-		if value != "" {
-			rawProviderIDs[key] = value
-		}
+		localProviderIDKey:   artwork.ProviderID,
+		sidecar.CapabilityID: artwork.ProviderID,
 	}
 	providerIDs, err := stringStruct(rawProviderIDs)
 	if err != nil {
 		return nil, err
 	}
 	return &pluginv1.ProviderSearchResult{
-		ProviderId:    result.ProviderID,
-		ItemType:      itemType,
-		Title:         result.Item.Title,
-		OriginalTitle: result.Item.OriginalTitle,
-		Year:          int32(result.Item.Year),
-		Overview:      result.Item.Overview,
-		ImageUrl:      searchImageURL(result.Images),
-		ProviderIds:   providerIDs,
+		ProviderId:  artwork.ProviderID,
+		ItemType:    itemType,
+		Title:       result.Title,
+		Year:        int32(result.Year),
+		ImageUrl:    searchImageURL(artwork.Images),
+		ProviderIds: providerIDs,
 	}, nil
 }
 
@@ -251,46 +213,15 @@ func metadataItemFromResult(result *sidecar.LookupResult, itemType string) (*plu
 		localProviderIDKey:   result.ProviderID,
 		sidecar.CapabilityID: result.ProviderID,
 	}
-	for key, value := range result.Item.ProviderIDs {
-		if value != "" {
-			rawProviderIDs[key] = value
-		}
-	}
 	providerIDs, err := stringStruct(rawProviderIDs)
 	if err != nil {
 		return nil, err
 	}
-	ratings, err := floatStruct(result.Item.Ratings)
-	if err != nil {
-		return nil, err
-	}
-	metadata, err := structpb.NewStruct(result.Item.Metadata)
-	if err != nil && len(result.Item.Metadata) > 0 {
-		return nil, err
-	}
 
 	item := &pluginv1.MetadataItem{
-		ProviderId:        result.ProviderID,
-		ItemType:          itemType,
-		Title:             result.Item.Title,
-		OriginalTitle:     result.Item.OriginalTitle,
-		SortTitle:         result.Item.SortTitle,
-		Year:              int32(result.Item.Year),
-		Overview:          result.Item.Overview,
-		Tagline:           result.Item.Tagline,
-		Runtime:           int32(result.Item.RuntimeMinutes),
-		Genres:            append([]string(nil), result.Item.Genres...),
-		Studios:           append([]string(nil), result.Item.Studios...),
-		Countries:         append([]string(nil), result.Item.Countries...),
-		OriginalLanguage:  result.Item.OriginalLanguage,
-		ContentRating:     result.Item.ContentRating,
-		ProviderIds:       providerIDs,
-		Ratings:           ratings,
-		Metadata:          metadata,
-		ReleaseDate:       result.Item.ReleaseDate,
-		People:            peopleToRecords(result.Item.People),
-		BackdropThumbhash: "",
-		PosterThumbhash:   "",
+		ProviderId:  result.ProviderID,
+		ItemType:    itemType,
+		ProviderIds: providerIDs,
 	}
 	for _, image := range result.Images {
 		switch image.Kind {
@@ -308,26 +239,7 @@ func metadataItemFromResult(result *sidecar.LookupResult, itemType string) (*plu
 			}
 		}
 	}
-	if item.ReleaseDate == "" {
-		item.ReleaseDate = result.Item.AirDate
-	}
 	return item, nil
-}
-
-func peopleToRecords(people []sidecar.Person) []*pluginv1.PersonRecord {
-	if len(people) == 0 {
-		return nil
-	}
-	records := make([]*pluginv1.PersonRecord, 0, len(people))
-	for _, person := range people {
-		records = append(records, &pluginv1.PersonRecord{
-			Name:      person.Name,
-			Kind:      person.Kind,
-			Character: person.Character,
-			SortOrder: int32(person.SortOrder),
-		})
-	}
-	return records
 }
 
 func stringStruct(value map[string]string) (*structpb.Struct, error) {
@@ -360,17 +272,6 @@ func stringMapFromStruct(value *structpb.Struct) map[string]string {
 		return nil
 	}
 	return out
-}
-
-func floatStruct(value map[string]float64) (*structpb.Struct, error) {
-	if len(value) == 0 {
-		return nil, nil
-	}
-	converted := make(map[string]any, len(value))
-	for key, entry := range value {
-		converted[key] = entry
-	}
-	return structpb.NewStruct(converted)
 }
 
 func searchImageURL(images []sidecar.Image) string {
@@ -413,44 +314,20 @@ func supportsSearchItemType(itemType string) bool {
 	}
 }
 
-func localSearchProviderID(itemType, title string, year int32) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("local-search\x00%s\x00%s\x00%d", strings.ToLower(itemType), strings.ToLower(title), year)))
-	return hex.EncodeToString(sum[:])[:24]
-}
-
-func localSearchYear(title string, requestYear int32) int32 {
-	if requestYear > 0 {
-		return requestYear
-	}
-	if year := parseSearchYear(gregorianYearPattern, title); year > 0 {
-		return year
-	}
-	if year := parseSearchYear(persianYearPattern, title); year > 0 {
-		return year + 621
-	}
-	return int32(time.Now().Year())
-}
-
-func parseSearchYear(pattern *regexp.Regexp, title string) int32 {
-	match := pattern.FindString(title)
-	if match == "" {
-		return 0
-	}
-	year, err := strconv.Atoi(match)
-	if err != nil {
-		return 0
-	}
-	return int32(year)
-}
-
 func debugf(format string, args ...any) {
-	value := strings.TrimSpace(strings.ToLower(os.Getenv("SILO_LOCAL_METADATA_DEBUG")))
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("SILO_LOCAL_ARTWORK_DEBUG")))
+	if value == "" {
+		value = strings.TrimSpace(strings.ToLower(os.Getenv("SILO_LOCAL_METADATA_DEBUG")))
+	}
 	if value != "1" && value != "true" && value != "yes" && value != "on" {
 		return
 	}
-	path := strings.TrimSpace(os.Getenv("SILO_LOCAL_METADATA_DEBUG_LOG"))
+	path := strings.TrimSpace(os.Getenv("SILO_LOCAL_ARTWORK_DEBUG_LOG"))
 	if path == "" {
-		path = "/tmp/silo-local-metadata-debug.log"
+		path = strings.TrimSpace(os.Getenv("SILO_LOCAL_METADATA_DEBUG_LOG"))
+	}
+	if path == "" {
+		path = "/tmp/silo-local-artwork-debug.log"
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
