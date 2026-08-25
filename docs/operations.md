@@ -8,25 +8,18 @@ Operator notes for the Local Artwork add-on. The stable installed plugin ID is
 1. Silo supplies a media path to the compatibility metadata capability.
 2. Local Artwork looks only for adjacent image files; it does not read NFO XML.
 3. The plugin returns a stable provider ID derived from the cleaned media path.
-4. Image requests reuse that ID through the in-memory or configured-root index.
+4. Image requests reuse that ID through the in-memory request cache.
 5. The resolver converts validated `local-artwork://` paths to data URLs.
 
 The built-in NFO provider must be ordered before Local Artwork.
 
-## Required root configuration
+## Configuration-free discovery
 
-Set the container environment variable to the mounted library root:
-
-```text
-SILO_LOCAL_ARTWORK_ROOTS=/mnt
-```
-
-Multiple roots may be separated by commas or newlines. The legacy
-`SILO_LOCAL_METADATA_ROOTS` name remains accepted during migration.
-
-Configured roots are used both for fallback indexing and path confinement.
-Without at least one valid configured root, artwork discovery and resolution
-fail closed.
+No media roots are configured. Silo provides the exact media path during
+metadata refresh. File-backed items use adjacent artwork candidates. A series
+or season directory may use folder artwork when regular media exists within a
+bounded two-level subtree. The resolver repeats the corresponding validation
+before reading an image.
 
 ## Diagnostics
 
@@ -53,9 +46,8 @@ IDs, plots, ratings, or people from NFO.
 
 1. Confirm the image is PNG, JPEG, or WebP and no larger than 8 MiB.
 2. Confirm it uses a supported basename, folder name, or `poster-*` variant.
-3. Confirm the path is under `SILO_LOCAL_ARTWORK_ROOTS`.
-4. Confirm the image itself is not a symlink.
-5. Refresh metadata so Silo stores a new `local-artwork://` URL.
+3. Confirm the image is beside the media file and is not a symlink.
+4. Refresh metadata so Silo stores a new `local-artwork://` URL.
 
 ### Old artwork disappeared
 

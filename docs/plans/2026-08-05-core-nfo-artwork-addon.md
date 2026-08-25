@@ -1,5 +1,11 @@
 # Core NFO Artwork Add-on Plan
 
+> Update (2026-08-24): configured-root indexing was removed. Silo supplies the
+> exact media path during metadata refresh; Local Artwork performs adjacent
+> discovery only, and its resolver validates artwork against a sibling media
+> file. References below to configured roots or fallback indexing describe the
+> superseded v0.2.0 implementation.
+
 ## Outcome
 
 Convert Silo Local Metadata into **Local Artwork**, a compatibility add-on for

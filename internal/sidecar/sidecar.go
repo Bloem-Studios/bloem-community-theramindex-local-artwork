@@ -34,9 +34,7 @@ type Image struct {
 	Path string
 }
 
-type Provider struct {
-	roots []string
-}
+type Provider struct{}
 
 type Diagnostics struct {
 	MediaPath  string
@@ -45,36 +43,12 @@ type Diagnostics struct {
 }
 
 func NewProvider() *Provider {
-	return NewProviderWithRoots(ConfiguredRoots())
-}
-
-func NewProviderWithRoots(roots []string) *Provider {
-	return &Provider{roots: normalizeRoots(roots)}
-}
-
-func ConfiguredRoots() []string {
-	value := strings.TrimSpace(os.Getenv("SILO_LOCAL_ARTWORK_ROOTS"))
-	if value == "" {
-		value = strings.TrimSpace(os.Getenv("SILO_LOCAL_METADATA_ROOTS"))
-	}
-	if value == "" {
-		return nil
-	}
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == '\n'
-	})
-	roots := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if root := strings.TrimSpace(part); root != "" {
-			roots = append(roots, root)
-		}
-	}
-	return roots
+	return &Provider{}
 }
 
 func (p *Provider) Lookup(mediaPath string, _ ...string) (*LookupResult, error) {
-	mediaPath = strings.TrimSpace(mediaPath)
-	if mediaPath == "" {
+	mediaPath, ok := safeLookupPath(mediaPath)
+	if !ok {
 		return nil, nil
 	}
 	images := p.findImages(mediaPath)
@@ -236,13 +210,69 @@ func (p *Provider) safeImagePath(path string) (string, bool) {
 		return "", false
 	}
 	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", false
-	}
-	if !withinAnyRoot(resolved, p.roots) {
+	if err != nil || !p.belongsToSiblingMedia(resolved) {
 		return "", false
 	}
 	return resolved, true
+}
+
+func (p *Provider) belongsToSiblingMedia(imagePath string) bool {
+	dir := filepath.Dir(imagePath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !isMediaFile(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		mediaPath := filepath.Join(dir, entry.Name())
+		if candidateMatchesImage(p.imageCandidates(mediaPath), imagePath) {
+			return true
+		}
+	}
+	return hasMediaWithin(dir, 2) && candidateMatchesImage(p.imageCandidates(dir), imagePath)
+}
+
+func candidateMatchesImage(candidates []imageCandidate, imagePath string) bool {
+	for _, candidate := range candidates {
+		candidatePath, err := filepath.EvalSymlinks(actualCasePath(candidate.path))
+		if err == nil && candidatePath == imagePath {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMediaWithin(dir string, remainingDepth int) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if remainingDepth > 0 && hasMediaWithin(path, remainingDepth-1) {
+				return true
+			}
+			continue
+		}
+		if !isMediaFile(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 func hasImageContent(path string) bool {
@@ -257,34 +287,6 @@ func hasImageContent(path string) bool {
 		return false
 	}
 	return strings.HasPrefix(http.DetectContentType(buf[:n]), "image/")
-}
-
-func normalizeRoots(roots []string) []string {
-	out := make([]string, 0, len(roots))
-	seen := make(map[string]bool, len(roots))
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		resolved, err := filepath.EvalSymlinks(filepath.Clean(root))
-		if err != nil || !filepath.IsAbs(resolved) || seen[resolved] {
-			continue
-		}
-		seen[resolved] = true
-		out = append(out, resolved)
-	}
-	return out
-}
-
-func withinAnyRoot(path string, roots []string) bool {
-	for _, root := range roots {
-		rel, err := filepath.Rel(root, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
 }
 
 func actualCasePath(path string) string {
@@ -325,6 +327,37 @@ func isSupportedImageExtension(ext string) bool {
 		}
 	}
 	return false
+}
+
+func isMediaFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".webm",
+		".mpg", ".mpeg", ".wmv", ".ts", ".m2ts", ".mts", ".iso",
+		".vob", ".ogm", ".ogv", ".flv", ".f4v", ".3gp", ".3g2",
+		".asf", ".divx", ".rm", ".rmvb":
+		return true
+	default:
+		return false
+	}
+}
+
+func safeLookupPath(path string) (string, bool) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || !filepath.IsAbs(path) {
+		return "", false
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return "", false
+	}
+	if !info.IsDir() && (!info.Mode().IsRegular() || !isMediaFile(path)) {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", false
+	}
+	return resolved, true
 }
 
 func dedupeImageCandidates(values []imageCandidate) []imageCandidate {

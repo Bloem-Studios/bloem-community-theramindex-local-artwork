@@ -32,18 +32,16 @@ The resolver returns data URLs directly and does not require S3.
 
 ## Configuration
 
-Set `SILO_LOCAL_ARTWORK_ROOTS` to a comma- or newline-separated list of allowed
-media roots. For the standard Silo container deployment this is normally:
+No media-root configuration is required. Silo supplies the exact media path to
+the plugin during metadata refresh. For file-backed items, Local Artwork checks
+only that file's directory. For a series or season directory, it checks folder
+artwork there and validates that media exists within at most two child levels.
+It never recursively scans mounted libraries.
 
-```text
-SILO_LOCAL_ARTWORK_ROOTS=/mnt
-```
-
-Discovery and resolution fail closed when no valid root is configured. They
-reject paths outside the roots, symlink leaves, non-regular files, empty files,
-unsupported extensions, non-image content, and files larger than 8 MiB.
-`SILO_LOCAL_METADATA_ROOTS` remains a temporary configuration alias for
-upgrades.
+The resolver serves only recognized artwork candidates beside a regular media
+file, or folder artwork for a validated series/season directory. It also
+rejects symlink image leaves, non-regular files, empty files, unsupported
+extensions, non-image content, and files larger than 8 MiB.
 
 Optional diagnostics:
 

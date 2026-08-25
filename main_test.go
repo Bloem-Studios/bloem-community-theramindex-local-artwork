@@ -66,87 +66,6 @@ func TestMetadataServerSearchWithoutArtworkReturnsNoCandidate(t *testing.T) {
 	}
 }
 
-func TestMetadataServerSearchIndexesArtworkWithoutNFO(t *testing.T) {
-	dir := t.TempDir()
-	root := filepath.Join(dir, "movies-fa")
-	movieDir := filepath.Join(root, "1 2 3")
-	media := filepath.Join(movieDir, "1 2 3 [WEBDL-480p 8-bit AVC AAC]-GLWiZ.mp4")
-	mustWrite(t, media, "")
-	mustWrite(t, filepath.Join(movieDir, "poster.png"), testPNG)
-	t.Setenv("SILO_LOCAL_ARTWORK_ROOTS", root)
-
-	ms := &metadataServer{
-		runtime: &runtimeServer{provider: provider.NewProvider()},
-	}
-	searchResp, err := ms.Search(context.Background(), &pluginv1.SearchMetadataRequest{
-		Query:    "1 2 3 [WEBDL-480p 8-bit AVC AAC]-GLWiZ",
-		ItemType: "movie",
-	})
-	if err != nil {
-		t.Fatalf("Search() error = %v", err)
-	}
-	results := searchResp.GetResults()
-	if len(results) != 1 {
-		t.Fatalf("Search() results length = %d, want 1", len(results))
-	}
-	result := results[0]
-	if got := result.GetTitle(); got != "1 2 3 [WEBDL-480p 8-bit AVC AAC]-GLWiZ" {
-		t.Fatalf("Search result Title = %q, want request title", got)
-	}
-	if got := result.GetProviderId(); got == "" {
-		t.Fatal("Search result ProviderId is empty")
-	}
-
-	metadataResp, err := ms.GetMetadata(context.Background(), &pluginv1.GetMetadataRequest{
-		ProviderId: result.GetProviderId(),
-		ItemType:   "movie",
-	})
-	if err != nil {
-		t.Fatalf("GetMetadata() error = %v", err)
-	}
-	item := metadataResp.GetItem()
-	if item == nil {
-		t.Fatal("GetMetadata().Item is nil")
-	}
-	if got := item.GetTitle(); got != "" {
-		t.Fatalf("Metadata Title = %q, want empty", got)
-	}
-	if got := item.GetProviderId(); got != result.GetProviderId() {
-		t.Fatalf("Metadata ProviderId = %q, want %q", got, result.GetProviderId())
-	}
-	if got := item.GetPosterPath(); got == "" {
-		t.Fatal("Metadata PosterPath is empty")
-	}
-
-	restarted := &metadataServer{
-		runtime: &runtimeServer{provider: provider.NewProvider()},
-	}
-	restartedSearch, err := restarted.Search(context.Background(), &pluginv1.SearchMetadataRequest{
-		Query:    "1 2 3 [WEBDL-480p 8-bit AVC AAC]-GLWiZ",
-		ItemType: "movie",
-	})
-	if err != nil {
-		t.Fatalf("Search() after restart error = %v", err)
-	}
-	if len(restartedSearch.GetResults()) != 1 {
-		t.Fatalf("Search() after restart results = %d, want 1", len(restartedSearch.GetResults()))
-	}
-	restartedResult := restartedSearch.GetResults()[0]
-	if got := restartedResult.GetProviderId(); got != result.GetProviderId() {
-		t.Fatalf("ProviderId after restart = %q, want %q", got, result.GetProviderId())
-	}
-	restartedImages, err := restarted.GetImages(context.Background(), &pluginv1.GetImagesRequest{
-		ProviderId: restartedResult.GetProviderId(),
-		ItemType:   "movie",
-	})
-	if err != nil {
-		t.Fatalf("GetImages() after restart error = %v", err)
-	}
-	if len(restartedImages.GetImages()) == 0 {
-		t.Fatal("GetImages() after restart returned no artwork")
-	}
-}
-
 func TestMetadataServerSearchUsesFilePathProviderIDSidecar(t *testing.T) {
 	dir := t.TempDir()
 	movieDir := filepath.Join(dir, "movies", "Example Movie")
@@ -162,7 +81,7 @@ func TestMetadataServerSearchUsesFilePathProviderIDSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stringStruct() error = %v", err)
 	}
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	searchResp, err := ms.Search(context.Background(), &pluginv1.SearchMetadataRequest{
 		Query:       "Example Movie [WEBDL-1080p]",
 		ItemType:    "movie",
@@ -200,7 +119,7 @@ func TestMetadataServerGetImagesUsesFilePathProviderIDSidecar(t *testing.T) {
 </movie>`)
 	mustWrite(t, filepath.Join(movieDir, "poster.png"), testPNG)
 
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	providerIDs, err := stringStruct(map[string]string{
 		"_filepath":          media,
 		sidecar.CapabilityID: "local-sidecar-id",
@@ -242,7 +161,7 @@ func TestMetadataServerGetImagesUsesSearchProviderIDCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stringStruct() error = %v", err)
 	}
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	searchResp, err := ms.Search(context.Background(), &pluginv1.SearchMetadataRequest{
 		Query:       "Example Movie",
 		ItemType:    "movie",
@@ -283,7 +202,7 @@ func TestMetadataServerGetImagesUsesMetadataProviderIDCache(t *testing.T) {
 </movie>`)
 	mustWrite(t, filepath.Join(movieDir, "poster.png"), testPNG)
 
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	metadataResp, err := ms.GetMetadata(context.Background(), &pluginv1.GetMetadataRequest{
 		ItemType: "movie",
 		FilePath: media,
@@ -327,7 +246,7 @@ func TestMetadataServerSearchUsesRequestYearWhenFilePathNFOHasNoYear(t *testing.
 	if err != nil {
 		t.Fatalf("stringStruct() error = %v", err)
 	}
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	searchResp, err := ms.Search(context.Background(), &pluginv1.SearchMetadataRequest{
 		Query:       "Year From Folder",
 		ItemType:    "movie",
@@ -378,7 +297,7 @@ func TestMetadataServerGetMetadataAddsArtworkWithoutParsingNFO(t *testing.T) {
 </movie>`)
 	mustWrite(t, filepath.Join(dir, "Movie-poster.jpg"), testPNG)
 
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	resp, err := ms.GetMetadata(context.Background(), &pluginv1.GetMetadataRequest{
 		ItemType: "movie",
 		FilePath: media,
@@ -397,6 +316,25 @@ func TestMetadataServerGetMetadataAddsArtworkWithoutParsingNFO(t *testing.T) {
 	}
 	if got := resp.GetItem().GetPosterPath(); !strings.HasPrefix(got, "local-artwork://") {
 		t.Fatalf("PosterPath = %q, want local-artwork:// prefix", got)
+	}
+	resolved, err := ms.ResolveImageURL(context.Background(), &pluginv1.ResolveImageURLRequest{
+		Path: resp.GetItem().GetPosterPath(),
+	})
+	if err != nil {
+		t.Fatalf("ResolveImageURL() error = %v", err)
+	}
+	if got := resolved.GetUrl(); !strings.HasPrefix(got, "data:image/") {
+		t.Fatalf("ResolveImageURL() URL = %q, want image data URL", got)
+	}
+	restarted := testMetadataServer()
+	restartedResolved, err := restarted.ResolveImageURL(context.Background(), &pluginv1.ResolveImageURLRequest{
+		Path: resp.GetItem().GetPosterPath(),
+	})
+	if err != nil {
+		t.Fatalf("ResolveImageURL() after restart error = %v", err)
+	}
+	if got := restartedResolved.GetUrl(); !strings.HasPrefix(got, "data:image/") {
+		t.Fatalf("ResolveImageURL() after restart URL = %q, want image data URL", got)
 	}
 	if got := resp.GetItem().GetProviderIds().AsMap()["local-metadata"]; got == "" {
 		t.Fatalf("local-metadata provider id missing from ProviderIds: %#v", resp.GetItem().GetProviderIds().AsMap())
@@ -418,7 +356,7 @@ func TestMetadataServerGetMetadataPreservesRequestedProviderIDForImages(t *testi
 	mustWrite(t, filepath.Join(dir, "Movie.nfo"), `<movie><title>Local Movie</title></movie>`)
 	mustWrite(t, filepath.Join(dir, "poster.png"), testPNG)
 
-	ms := testMetadataServerForRoot(t, dir)
+	ms := testMetadataServer()
 	const requestedProviderID = "search-provider-id"
 	metadataResp, err := ms.GetMetadata(context.Background(), &pluginv1.GetMetadataRequest{
 		ProviderId: requestedProviderID,
@@ -472,11 +410,10 @@ func TestMetadataServerGetMetadataNoSidecarReturnsEmptyResponse(t *testing.T) {
 	}
 }
 
-func testMetadataServerForRoot(t *testing.T, root string) *metadataServer {
-	t.Helper()
+func testMetadataServer() *metadataServer {
 	return &metadataServer{
 		runtime: &runtimeServer{
-			provider: provider.NewProviderWithSidecars(sidecar.NewProviderWithRoots([]string{root})),
+			provider: provider.NewProviderWithSidecars(sidecar.NewProvider()),
 		},
 	}
 }

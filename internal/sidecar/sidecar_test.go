@@ -38,7 +38,7 @@ func TestLookupFindsSameBasenameAndJellyfinFolderImages(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "folder.jpg"), validPNG)
 	writeFile(t, filepath.Join(dir, "tvshow.nfo"), "<tvshow><title>Show Title</title></tvshow>")
 
-	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
+	got, err := NewProvider().Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -75,7 +75,7 @@ func TestLookupFindsFolderPosterVariantsInDeterministicOrder(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "poster-.png"), "missing variant name")
 	writeFile(t, filepath.Join(dir, "poster-es.gif"), "unsupported format")
 
-	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
+	got, err := NewProvider().Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestLookupFindsExactArtworkWithUppercaseExtension(t *testing.T) {
 	writeFile(t, media, "")
 	writeFile(t, filepath.Join(dir, "poster.PNG"), validPNG)
 
-	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
+	got, err := NewProvider().Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestLookupSkipsInvalidPosterVariantAndUsesNextValidCandidate(t *testing.T) 
 	writeFile(t, filepath.Join(dir, "poster-a.png"), "not an image")
 	writeFile(t, filepath.Join(dir, "poster-b.png"), validPNG)
 
-	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
+	got, err := NewProvider().Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -144,7 +144,7 @@ func TestLookupFindsArtworkWhenNFOIsMalformed(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "movie.nfo"), "<movie><broken>")
 	writeFile(t, filepath.Join(dir, "poster.png"), validPNG)
 
-	got, err := NewProviderWithRoots([]string{dir}).Lookup(media, "movie")
+	got, err := NewProvider().Lookup(media, "movie")
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -160,7 +160,7 @@ func TestLookupReturnsNilWhenNoSidecarExists(t *testing.T) {
 	media := filepath.Join(dir, "No Metadata.mkv")
 	writeFile(t, media, "")
 
-	got, err := NewProviderWithRoots([]string{dir}).Lookup(media)
+	got, err := NewProvider().Lookup(media)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
@@ -169,14 +169,55 @@ func TestLookupReturnsNilWhenNoSidecarExists(t *testing.T) {
 	}
 }
 
+func TestLookupRejectsMissingSuppliedMediaPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Different Movie.mkv"), "media")
+	writeFile(t, filepath.Join(dir, "poster.png"), validPNG)
+
+	got, err := NewProvider().Lookup(filepath.Join(dir, "Missing Movie.mkv"))
+	if err != nil {
+		t.Fatalf("Lookup() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Lookup() = %#v, want nil for missing supplied media", got)
+	}
+}
+
+func TestLookupAndResolveSeriesDirectoryArtworkWithoutConfiguredRoots(t *testing.T) {
+	t.Parallel()
+
+	seriesDir := t.TempDir()
+	writeFile(t, filepath.Join(seriesDir, "Season 01", "Episode 01.mkv"), "media")
+	poster := filepath.Join(seriesDir, "poster.png")
+	writeFile(t, poster, validPNG)
+
+	result, err := NewProvider().Lookup(seriesDir, "series")
+	if err != nil {
+		t.Fatalf("Lookup() error = %v", err)
+	}
+	if result == nil || len(result.Images) != 1 {
+		t.Fatalf("Lookup() = %#v, want series poster", result)
+	}
+	resolved, err := NewProvider().ResolveImage(Scheme + poster)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved == "" {
+		t.Fatal("ResolveImage() returned empty for series directory poster")
+	}
+}
+
 func TestResolveImageUsesDataURLForExistingSidecarPath(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Movie.mkv"), "")
 	image := filepath.Join(dir, "Movie-poster.png")
 	writeFile(t, image, validPNG)
 
-	got, err := NewProviderWithRoots([]string{dir}).ResolveImage(Scheme + image)
+	got, err := NewProvider().ResolveImage(Scheme + image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
@@ -190,10 +231,11 @@ func TestResolveImageUsesDataURLForBareResolverPath(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Movie.mkv"), "")
 	image := filepath.Join(dir, "Movie-poster.png")
 	writeFile(t, image, validPNG)
 
-	got, err := NewProviderWithRoots([]string{dir}).ResolveImage(image)
+	got, err := NewProvider().ResolveImage(image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
@@ -207,10 +249,11 @@ func TestResolveImageSupportsLegacySchemeDuringMigration(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Movie.mkv"), "")
 	image := filepath.Join(dir, "poster.png")
 	writeFile(t, image, validPNG)
 
-	got, err := NewProviderWithRoots([]string{dir}).ResolveImage(LegacyScheme + image)
+	got, err := NewProvider().ResolveImage(LegacyScheme + image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
@@ -219,39 +262,14 @@ func TestResolveImageSupportsLegacySchemeDuringMigration(t *testing.T) {
 	}
 }
 
-func TestResolveImageRejectsPathOutsideConfiguredRoots(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	outside := t.TempDir()
-	insideImage := filepath.Join(root, "poster.png")
-	outsideImage := filepath.Join(outside, "poster.png")
-	writeFile(t, insideImage, validPNG)
-	writeFile(t, outsideImage, validPNG)
-	p := NewProviderWithRoots([]string{root})
-
-	insideURL, err := p.ResolveImage(Scheme + insideImage)
-	if err != nil || insideURL == "" {
-		t.Fatalf("ResolveImage(inside) = %q, %v", insideURL, err)
-	}
-	outsideURL, err := p.ResolveImage(Scheme + outsideImage)
-	if err != nil {
-		t.Fatalf("ResolveImage(outside) error = %v", err)
-	}
-	if outsideURL != "" {
-		t.Fatalf("ResolveImage(outside) = %q, want empty", outsideURL)
-	}
-}
-
-func TestResolveImageFailsClosedWhenConfiguredRootIsInvalid(t *testing.T) {
+func TestResolveImageRejectsArtworkWithoutSiblingMedia(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	image := filepath.Join(dir, "poster.png")
 	writeFile(t, image, validPNG)
-	p := NewProviderWithRoots([]string{filepath.Join(dir, "missing-root")})
 
-	resolved, err := p.ResolveImage(Scheme + image)
+	resolved, err := NewProvider().ResolveImage(Scheme + image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
@@ -260,19 +278,96 @@ func TestResolveImageFailsClosedWhenConfiguredRootIsInvalid(t *testing.T) {
 	}
 }
 
-func TestResolveImageFailsClosedWithoutConfiguredRoots(t *testing.T) {
+func TestResolveImageRejectsUnrecognizedImageBesideMedia(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	image := filepath.Join(dir, "poster.png")
+	writeFile(t, filepath.Join(dir, "Movie.mkv"), "")
+	image := filepath.Join(dir, "private-scan.png")
 	writeFile(t, image, validPNG)
 
-	resolved, err := NewProviderWithRoots(nil).ResolveImage(Scheme + image)
+	resolved, err := NewProvider().ResolveImage(Scheme + image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}
 	if resolved != "" {
 		t.Fatalf("ResolveImage() = %q, want empty", resolved)
+	}
+}
+
+func TestResolveImageAcceptsFolderPosterWithoutConfiguredRoots(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Movie.mkv"), "")
+	image := filepath.Join(dir, "poster.png")
+	writeFile(t, image, validPNG)
+
+	resolved, err := NewProvider().ResolveImage(Scheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved == "" {
+		t.Fatal("ResolveImage() returned empty, want folder poster data URL")
+	}
+}
+
+func TestResolveImageAcceptsArtworkBesideWebMMedia(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Movie.webm"), "media")
+	image := filepath.Join(dir, "poster.png")
+	writeFile(t, image, validPNG)
+
+	resolved, err := NewProvider().ResolveImage(Scheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved == "" {
+		t.Fatal("ResolveImage() returned empty for artwork beside WebM media")
+	}
+}
+
+func TestResolveImageAllowsSymlinkedParentDirectory(t *testing.T) {
+	t.Parallel()
+
+	realDir := t.TempDir()
+	writeFile(t, filepath.Join(realDir, "Movie.mkv"), "media")
+	writeFile(t, filepath.Join(realDir, "poster.png"), validPNG)
+	parent := t.TempDir()
+	linkedDir := filepath.Join(parent, "Movie")
+	if err := os.Symlink(realDir, linkedDir); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	resolved, err := NewProvider().ResolveImage(Scheme + filepath.Join(linkedDir, "poster.png"))
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved == "" {
+		t.Fatal("ResolveImage() returned empty through symlinked parent")
+	}
+}
+
+func TestResolveImageRejectsSymlinkedSiblingMedia(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "Movie.mkv")
+	writeFile(t, target, "media")
+	if err := os.Symlink(target, filepath.Join(dir, "Movie.mkv")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	image := filepath.Join(dir, "poster.png")
+	writeFile(t, image, validPNG)
+
+	resolved, err := NewProvider().ResolveImage(Scheme + image)
+	if err != nil {
+		t.Fatalf("ResolveImage() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("ResolveImage() = %q, want empty for symlinked sibling media", resolved)
 	}
 }
 
@@ -288,7 +383,7 @@ func TestLookupAndResolveRejectSymlinkImageLeaves(t *testing.T) {
 	if err := os.Symlink(target, linked); err != nil {
 		t.Fatalf("Symlink() error = %v", err)
 	}
-	p := NewProviderWithRoots([]string{root})
+	p := NewProvider()
 
 	result, err := p.Lookup(media, "movie")
 	if err != nil {
@@ -310,10 +405,11 @@ func TestResolveImageRejectsNonImageContent(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "Movie.mkv"), "")
 	image := filepath.Join(root, "poster.png")
 	writeFile(t, image, "not an image")
 
-	resolved, err := NewProviderWithRoots([]string{root}).ResolveImage(Scheme + image)
+	resolved, err := NewProvider().ResolveImage(Scheme + image)
 	if err != nil {
 		t.Fatalf("ResolveImage() error = %v", err)
 	}

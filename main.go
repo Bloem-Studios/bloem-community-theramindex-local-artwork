@@ -54,7 +54,7 @@ func (s *metadataServer) Search(_ context.Context, req *pluginv1.SearchMetadataR
 		debugf("local-artwork: Search skipped item_type=%q query=%q year=%d reason=unsupported_item_type", req.GetItemType(), req.GetQuery(), req.GetYear())
 		return &pluginv1.SearchMetadataResponse{}, nil
 	}
-	indexed, err := s.runtime.provider.Search(context.Background(), provider.SearchRequest{
+	searchResponse, err := s.runtime.provider.Search(context.Background(), provider.SearchRequest{
 		ContentType: itemType,
 		Query:       title,
 		Year:        int(req.GetYear()),
@@ -63,14 +63,14 @@ func (s *metadataServer) Search(_ context.Context, req *pluginv1.SearchMetadataR
 	if err != nil {
 		return nil, err
 	}
-	if len(indexed.Results) > 0 || indexed.IndexConfigured {
-		results := make([]*pluginv1.ProviderSearchResult, 0, len(indexed.Results))
-		for _, result := range indexed.Results {
+	if len(searchResponse.Results) > 0 {
+		results := make([]*pluginv1.ProviderSearchResult, 0, len(searchResponse.Results))
+		for _, result := range searchResponse.Results {
 			searchResult, err := providerSearchResultFromLookup(result, itemType)
 			if err != nil {
 				return nil, err
 			}
-			debugf("local-artwork: Search indexed matched item_type=%q query=%q year=%d provider_id=%q", itemType, title, searchResult.GetYear(), searchResult.GetProviderId())
+			debugf("local-artwork: Search matched item_type=%q query=%q year=%d provider_id=%q", itemType, title, searchResult.GetYear(), searchResult.GetProviderId())
 			results = append(results, searchResult)
 		}
 		return &pluginv1.SearchMetadataResponse{Results: results}, nil
