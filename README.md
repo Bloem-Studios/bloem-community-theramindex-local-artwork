@@ -1,3 +1,12 @@
+## Bloem community build
+
+This is Bloem's community build of [theramindex/silo-plugin-local-artwork](https://github.com/theramindex/silo-plugin-local-artwork) by **theramindex**
+(contributors: theramindex). It is ported to the Bloem plugin SDK and listed in the
+Bloem community plugin catalog. All credit for the plugin goes to its author; please
+report plugin behavior issues upstream. See [NOTICE](NOTICE) for provenance.
+
+---
+
 # Local Artwork for Silo
 
 Local Artwork is a compatibility add-on for Silo's built-in NFO provider. Silo

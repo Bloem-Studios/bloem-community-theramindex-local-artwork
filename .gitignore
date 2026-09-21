@@ -3,3 +3,5 @@
 /silo-local-metadata
 *.test
 .DS_Store
+dist/
+release/

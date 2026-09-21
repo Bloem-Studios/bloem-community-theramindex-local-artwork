@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	pluginv1 "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
-	pluginruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
-	"github.com/theramindex/silo-plugin-local-artwork/internal/sidecar"
-	"github.com/theramindex/silo-plugin-local-artwork/provider"
+	pluginv1 "github.com/Bloem-Studios/bloem-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
+	pluginruntime "github.com/Bloem-Studios/bloem-plugin-sdk/pkg/pluginsdk/runtime"
+	"github.com/Bloem-Studios/bloem-community-theramindex-local-artwork/internal/sidecar"
+	"github.com/Bloem-Studios/bloem-community-theramindex-local-artwork/provider"
 	"google.golang.org/grpc"
 )
 

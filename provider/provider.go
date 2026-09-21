@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/theramindex/silo-plugin-local-artwork/internal/sidecar"
+	"github.com/Bloem-Studios/bloem-community-theramindex-local-artwork/internal/sidecar"
 )
 
 type MetadataRequest struct {
